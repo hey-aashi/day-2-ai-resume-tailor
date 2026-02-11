@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
 
@@ -28,3 +28,15 @@ class TailoredResponse(BaseModel):
     keyword_optimization: List[str]
     skills_gap: List[str]
     recommendations: List[str]
+
+
+class CoverLetterRequest(BaseModel):
+    resume_id: str
+    job_description: str = Field(min_length=50, max_length=20000)
+
+
+class CoverLetterResponse(BaseModel):
+    cover_letter: str
+    placeholders: Dict[str, str]
+    word_count: int
+    generation_time_ms: Optional[float] = None

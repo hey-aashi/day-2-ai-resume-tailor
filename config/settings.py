@@ -14,11 +14,13 @@ class Settings(BaseSettings):
     allowed_extensions: str = Field(default=".pdf")
     rate_limit_enabled: bool = Field(default=False)
     rate_limit_requests_per_minute: int = Field(default=60)
-    google_api_key: str | None = Field(default=None)
+    google_api_key: str | None = Field(default=None, alias="GOOGLE_API_KEY")
 
     class Config:
         env_file = ".env"
         env_prefix = ""
+        case_sensitive = False
+        populate_by_name = True
 
 
 settings = Settings()

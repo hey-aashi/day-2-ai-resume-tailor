@@ -18,9 +18,12 @@ from models.schemas import (
     JobResponse,
     TailorRequest,
     TailoredResponse,
+    CoverLetterRequest,
+    CoverLetterResponse,
 )
 from services.pdf_service import extract_text, extract_structured_info
 from services.ai_service import tailor_resume
+from utils.ai_engine import generate_cover_letter
 from utils.security import sanitize_filename, is_allowed_extension, within_size_limit
 from utils.text import normalize_whitespace
 
@@ -46,6 +49,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
@@ -162,6 +167,62 @@ async def tailor(payload: TailorRequest):
         skills_gap=result.get("skills_gap", []),
         recommendations=result.get("recommendations", []),
     )
+
+
+@app.post("/generate-cover-letter", response_model=CoverLetterResponse, tags=["analysis"])
+async def generate_cover_letter_endpoint(payload: CoverLetterRequest):
+    """
+    Generate a professional cover letter tailored to the job description.
+    
+    Args:
+        payload: CoverLetterRequest containing resume_id and job_description
+        
+    Returns:
+        CoverLetterResponse with generated cover letter and metadata
+        
+    Raises:
+        HTTPException: For various error scenarios
+    """
+    import time
+    
+    if not payload.resume_id:
+        raise HTTPException(status_code=400, detail="resume_id is required")
+    
+    if not payload.job_description or len(payload.job_description.strip()) < 50:
+        raise HTTPException(status_code=400, detail="Job description must be at least 50 characters")
+    
+    # Retrieve the processed resume text
+    resume_txt_path = OUTPUT_PATH / f"{payload.resume_id}.txt"
+    if not resume_txt_path.exists():
+        raise HTTPException(status_code=404, detail="Processed resume not found")
+    
+    resume_text = resume_txt_path.read_text(encoding="utf-8")
+    
+    # Generate the cover letter
+    start_time = time.time()
+    try:
+        result = generate_cover_letter(resume_text, payload.job_description)
+        generation_time_ms = (time.time() - start_time) * 1000
+        
+        # Calculate word count
+        word_count = len(result["cover_letter"].split())
+        
+        logger.info(f"Successfully generated cover letter with {word_count} words in {generation_time_ms:.2f}ms")
+        
+        return CoverLetterResponse(
+            cover_letter=result["cover_letter"],
+            placeholders=result["placeholders"],
+            word_count=word_count,
+            generation_time_ms=generation_time_ms
+        )
+        
+    except ValueError as e:
+        logger.error(f"Validation error in cover letter generation: {e}")
+        raise HTTPException(status_code=400, detail=str(e)) from e
+        
+    except Exception as e:
+        logger.exception("Cover letter generation failed")
+        raise HTTPException(status_code=500, detail="Failed to generate cover letter") from e
 
 
 @app.exception_handler(Exception)

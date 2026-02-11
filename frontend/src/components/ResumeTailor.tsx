@@ -9,6 +9,9 @@ import {
   Brain,
   AlertCircle,
   CheckCircle,
+  PenTool,
+  Copy,
+  Check,
 } from "lucide-react";
 
 type UploadResponse = {
@@ -22,6 +25,13 @@ type TailoredResponse = {
   keyword_optimization: string[];
   skills_gap: string[];
   recommendations: string[];
+};
+
+type CoverLetterResponse = {
+  cover_letter: string;
+  placeholders: Record<string, string>;
+  word_count: number;
+  generation_time_ms: number;
 };
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -40,8 +50,11 @@ export default function ResumeTailor() {
   const [file, setFile] = useState<File | null>(null);
   const [jobDesc, setJobDesc] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [coverLetterLoading, setCoverLetterLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TailoredResponse | null>(null);
+  const [coverLetter, setCoverLetter] = useState<CoverLetterResponse | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const onFileSelect = useCallback((f: File | null) => {
@@ -119,6 +132,76 @@ export default function ResumeTailor() {
     }
   }, [file, jobDesc]);
 
+  const handleGenerateCoverLetter = useCallback(async () => {
+    setError(null);
+    setCoverLetterLoading(true);
+    
+    if (!file) {
+      setError("Please upload a PDF resume first.");
+      setCoverLetterLoading(false);
+      return;
+    }
+    
+    const cleanedJob = jobDesc.trim();
+    if (cleanedJob.length < 200) {
+      setError("Job description must be at least 200 characters.");
+      setCoverLetterLoading(false);
+      return;
+    }
+    
+    try {
+      // First upload the resume to get resume_id
+      const fd = new FormData();
+      fd.append("file", file);
+      const uploadRes = await fetch(`${API_BASE}/upload-resume`, {
+        method: "POST",
+        body: fd,
+      });
+      
+      if (!uploadRes.ok) {
+        const msg = await safeError(uploadRes);
+        throw new Error(`Upload failed: ${msg}`);
+      }
+      
+      const uploadJson = (await uploadRes.json()) as UploadResponse;
+      
+      // Generate cover letter
+      const coverLetterRes = await fetch(`${API_BASE}/generate-cover-letter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume_id: uploadJson.resume_id,
+          job_description: cleanedJob,
+        }),
+      });
+      
+      if (!coverLetterRes.ok) {
+        const msg = await safeError(coverLetterRes);
+        throw new Error(`Cover letter generation failed: ${msg}`);
+      }
+      
+      const coverLetterJson = (await coverLetterRes.json()) as CoverLetterResponse;
+      setCoverLetter(coverLetterJson);
+      
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate cover letter.");
+    } finally {
+      setCoverLetterLoading(false);
+    }
+  }, [file, jobDesc]);
+
+  const handleCopyToClipboard = useCallback(async () => {
+    if (!coverLetter?.cover_letter) return;
+    
+    try {
+      await navigator.clipboard.writeText(coverLetter.cover_letter);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError("Failed to copy to clipboard.");
+    }
+  }, [coverLetter]);
+
   const safeError = async (res: Response) => {
     try {
       const j = await res.json();
@@ -129,7 +212,10 @@ export default function ResumeTailor() {
   };
 
   const disabled =
-    loading || !file || jobDesc.trim().length < 200 || !!error;
+    loading || !file || jobDesc.trim().length < 200;
+
+  const coverLetterDisabled =
+    coverLetterLoading || !file || jobDesc.trim().length < 200;
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-100">
@@ -193,27 +279,51 @@ export default function ResumeTailor() {
             </div>
 
             <div className="mt-6">
-              <button
-                onClick={handleAnalyze}
-                disabled={disabled}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  disabled
-                    ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-                    : "bg-blue-600 hover:bg-blue-500 text-white"
-                }`}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Brain className="h-4 w-4" />
-                    Analyze
-                  </>
-                )}
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={disabled}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    disabled
+                      ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-500 text-white"
+                  }`}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="h-4 w-4" />
+                      Analyze
+                    </>
+                  )}
+                </button>
+                
+                <button
+                  onClick={handleGenerateCoverLetter}
+                  disabled={coverLetterDisabled}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    coverLetterDisabled
+                      ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                  }`}
+                >
+                  {coverLetterLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <PenTool className="h-4 w-4" />
+                      Generate Cover Letter
+                    </>
+                  )}
+                </button>
+              </div>
               {error && (
                 <div className="mt-3 flex items-center gap-2 text-red-400 text-sm">
                   <AlertCircle className="h-4 w-4" />
@@ -307,6 +417,65 @@ export default function ResumeTailor() {
             )}
           </section>
         </div>
+
+        {/* Cover Letter Section */}
+        {coverLetter && (
+          <div className="mt-6">
+            <section className="bg-[#1a1a1a] rounded-lg p-6 border border-gray-800">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-emerald-400" />
+                  <h2 className="text-lg font-semibold">Generated Cover Letter</h2>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>{coverLetter.word_count} words</span>
+                  <span>•</span>
+                  <span>Generated in {Math.round(coverLetter.generation_time_ms)}ms</span>
+                </div>
+              </div>
+              
+              <div className="bg-[#121212] rounded-lg p-6 border border-gray-800">
+                <pre className="whitespace-pre-wrap text-sm text-gray-200 leading-6 font-mono">
+                  {coverLetter.cover_letter}
+                </pre>
+              </div>
+              
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-xs text-gray-400">
+                  <p>Placeholders to customize:</p>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {Object.entries(coverLetter.placeholders).map(([key, value]) => (
+                      <span key={key} className="px-2 py-1 rounded bg-gray-800 text-gray-300">
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                <button
+                  onClick={handleCopyToClipboard}
+                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    copied
+                      ? "bg-green-600 text-white"
+                      : "bg-blue-600 hover:bg-blue-500 text-white"
+                  }`}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" />
+                      Copy to Clipboard
+                    </>
+                  )}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
